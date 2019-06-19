@@ -1,0 +1,99 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: client-vpn - latest
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: ciinabox
+    NoEcho: false
+  ClientCertificateArn:
+    Description: arn of the acm imported client certificate
+    Type: String
+    NoEcho: false
+  ClientCidrBlock:
+    Description: >
+      The IPv4 address range, in CIDR notation, from which to assign client IP addresses.
+      The address range cannot overlap with the local CIDR of the VPC in which the associated subnet is located,
+      or the routes that you add manually. The address range cannot be changed after the Client VPN endpoint has been created.
+      The CIDR block should be /22 or greater.
+    Type: String
+    Default: 10.250.0.0/16
+    NoEcho: false
+  ServerCertificateArn:
+    Description: arn of the acm imported server certificate
+    Type: String
+    NoEcho: false
+  AssociationSubnetId:
+    Description: The subnet to assciate the VPN endpoint with
+    Type: AWS::EC2::Subnet::Id
+
+Resources:
+
+  ClientVpnLogGroup:
+    Properties:
+      LogGroupName:
+        Fn::Sub: "${EnvironmentName}-ClientVpn"
+      RetentionInDays: 30
+    Type: AWS::Logs::LogGroup
+
+  ClientVpnEndpoint:
+    Properties:
+      Description:
+        Fn::Sub: "${EnvironmentName} Client Vpn"
+      AuthenticationOptions:
+      - MutualAuthentication:
+          ClientRootCertificateChainArn:
+            Ref: ClientCertificateArn
+        Type: certificate-authentication
+      ClientCidrBlock:
+        Ref: ClientCidrBlock
+      ConnectionLogOptions:
+        CloudwatchLogGroup:
+          Ref: ClientVpnLogGroup
+        Enabled: true
+      ServerCertificateArn:
+        Ref: ServerCertificateArn
+      TagSpecifications:
+      - ResourceType: client-vpn-endpoint
+        Tags:
+        - Key: Name
+          Value:
+            Ref: EnvironmentName
+      TransportProtocol: udp
+    Type: AWS::EC2::ClientVpnEndpoint
+
+  ClientVpnTargetNetworkAssociation:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Properties:
+      ClientVpnEndpointId:
+        Ref: ClientVpnEndpoint
+      SubnetId:
+        Ref: AssociationSubnetId
+
+  RouteToInternet:
+    DependsOn: ClientVpnTargetNetworkAssociation
+    Type: AWS::EC2::ClientVpnRoute
+    Properties:
+      Description: Route to the internet
+      ClientVpnEndpointId:
+        Ref: ClientVpnEndpoint
+      DestinationCidrBlock: 0.0.0.0/0
+      TargetVpcSubnetId:
+        Ref: AssociationSubnetId
+
+  RouteToInternetAuthorizationRule:
+    DependsOn: ClientVpnTargetNetworkAssociation
+    Type: AWS::EC2::ClientVpnAuthorizationRule
+    Properties:
+      Description: Route to the internet
+      AuthorizeAllGroups: true
+      ClientVpnEndpointId:
+        Ref: ClientVpnEndpoint
+      TargetNetworkCidr: 0.0.0.0/0
+
+Outputs:
+  ClientVpnEndpointId:
+    Description: Client VPN Endpoint Id
+    Value:
+      Ref: ClientVpnEndpoint
